@@ -430,6 +430,7 @@ func TestControllerConfigmapUpdate(t *testing.T) {
 			if shouldBeUpdated {
 				// Generated configmap should be overfidden by default properties.
 				if cmp.Equal(gcm.Labels, map[string]string{}) {
+					print(cm)
 					t.Errorf("generated configmap should have been updated\ncase:\t%q\noriginal:\t%+v\ngenerated:\t%+v\n", name, cm.Labels, gcm.Labels)
 				}
 			} else {
