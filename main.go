@@ -76,6 +76,7 @@ type CmdConfig struct {
 	ScaleTimeout           time.Duration
 	useAzAwareHashRing     bool
 	podAzAnnotationKey     string
+	migrationState         string
 }
 
 func parseFlags() CmdConfig {
@@ -98,7 +99,7 @@ func parseFlags() CmdConfig {
 	flag.DurationVar(&config.ScaleTimeout, "scale-timeout", defaultScaleTimeout, "A timeout to wait for receivers to really start after they report healthy")
 	flag.BoolVar(&config.useAzAwareHashRing, "use-az-aware-hashring", false, "A boolean to use az aware hashring to comply with Thanos v0.32+")
 	flag.StringVar(&config.podAzAnnotationKey, "pod-az-annotation-key", "", "pod annotation key for AZ Info, If not specified or key not found, will use sts name as AZ key")
-	flag.Parse()
+	flag.StringVar(&config.migrationState, "migration-state", "no-state", "[Databricks Internal] internal pantheon migration state info")
 
 	return config
 }
@@ -160,8 +161,12 @@ func main() {
 			scaleTimeout:           config.ScaleTimeout,
 			useAzAwareHashRing:     config.useAzAwareHashRing,
 			podAzAnnotationKey:     config.podAzAnnotationKey,
+			migrationState:         config.migrationState,
 		}
+		level.Warn(logger).Log("msg", "thanos cmd migration state", "state", config.migrationState)
+
 		c := newController(klient, logger, opt)
+		level.Warn(logger).Log("msg", "thanos migration state", "state", c.options.migrationState)
 		c.registerMetrics(reg)
 		done := make(chan struct{})
 
@@ -346,6 +351,7 @@ type options struct {
 	scaleTimeout           time.Duration
 	useAzAwareHashRing     bool
 	podAzAnnotationKey     string
+	migrationState         string
 }
 
 type controller struct {
@@ -368,6 +374,7 @@ type controller struct {
 	configmapLastSuccessfulChangeTime prometheus.Gauge
 	hashringNodes                     *prometheus.GaugeVec
 	hashringTenants                   *prometheus.GaugeVec
+	pantheonMigrationState            *prometheus.GaugeVec
 }
 
 func newController(klient kubernetes.Interface, logger log.Logger, o *options) *controller {
@@ -432,6 +439,13 @@ func newController(klient kubernetes.Interface, logger log.Logger, o *options) *
 			},
 			[]string{"name"},
 		),
+		pantheonMigrationState: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Name: "thanos_receive_controller_pantheon_migration_state",
+				Help: "pantheon migration state",
+			},
+			[]string{"migration_state"},
+		),
 	}
 }
 
@@ -446,6 +460,7 @@ func (c *controller) registerMetrics(reg *prometheus.Registry) {
 		c.configmapChangeErrors.WithLabelValues(create).Add(0)
 		c.configmapChangeErrors.WithLabelValues(update).Add(0)
 		c.configmapChangeErrors.WithLabelValues(other).Add(0)
+		c.pantheonMigrationState.WithLabelValues(c.options.migrationState).Add(0)
 		reg.MustRegister(
 			c.reconcileAttempts,
 			c.reconcileErrors,
@@ -455,6 +470,7 @@ func (c *controller) registerMetrics(reg *prometheus.Registry) {
 			c.configmapLastSuccessfulChangeTime,
 			c.hashringNodes,
 			c.hashringTenants,
+			c.pantheonMigrationState,
 		)
 	}
 }
